@@ -1,65 +1,9 @@
 ## nimQOI - Encoding Functions
 ## 
 
-import std/[bitops]
-import binstreams
-
-type
-  Channels* = enum
-    RGB = 3, RGBA = 4
-
-  Colorspace* = enum
-    sRGB = 0, linear = 1
-
-  Header* = object
-    width*: uint32
-    height*: uint32
-    channels*: Channels
-    colorspace*: Colorspace
-
-  Pixel = object
-    r: byte
-    g: byte
-    b: byte
-    a: byte
-    
-  QoiFile = object
-    header: Header
-    data: seq[Pixel]
-
-
-const
-  QOI_MAGIC = ['q', 'o', 'i', 'f']
-  QOI_HEADER_SIZE = 14
-
-  QOI_RUN_TAG_MASK = 0b11000000.byte
-  QOI_INDEX_TAG_MASK = 0b00000000.byte
-  QOI_DIFF_TAG_MASK = 0b01000000.byte
-  QOI_LUMA_TAG_MASK = 0b10000000.byte
-  QOI_RGB_TAG_MASK = 0b11111110.byte
-  QOI_RGBA_TAG_MASK = 0b11111111.byte
-
-  QOI_END = [0.byte, 0.byte, 0.byte, 0.byte, 0.byte, 0.byte, 0.byte, 1.byte]
-  QOI_END_SIZE = 8
-
-
-func init(w, h: uint32; channels: Channels, colorspace: Colorspace): Header =
-  result.width = w
-  result.height = h
-  result.channels = channels
-  result.colorspace = colorspace
-
-
-func init(r, g, b, a: byte): Pixel = 
-  result.r = r
-  result.g = g
-  result.b = b
-  result.a = a
-
-
-func init(header: Header, data: seq[Pixel]): QoiFile =
-  result.header = header
-  result.data = data
+import std/[bitops] # Standard Libary import
+import binstreams # Nimble Library import
+import common # Adjacent Module import
 
 
 func isEqual(p1, p2: Pixel): bool =
@@ -80,6 +24,15 @@ func getDiff(p1, p2: Pixel): Pixel =
 
 
 func writeHeader(output: var Memstream; header: Header) =
+  ## Purpose:
+  ##    Writes the standardized QOI file header information to the output memory stream
+  ## Inputs:
+  ##    output: MemStream (variable) - a mutable Memstream object to write header data to
+  ##    header: Header - The image desciption object (width, length, channels, colorspace)
+  ## Side-Effects:
+  ##    writes 14 bytes  to the output memory stream
+  ## Returns:
+  ##    None
   for i in QOI_MAGIC:
        output.write(i)
   output.write(uint32(header.width))
@@ -87,18 +40,22 @@ func writeHeader(output: var Memstream; header: Header) =
   output.write(uint8(header.channels))
   output.write(uint8(header.colorspace))
 
-proc getPixel(stream: MemStream, channels: int): Pixel =
-  result.r = stream.read(byte)
-  result.g = stream.read(byte)
-  result.b = stream.read(byte)
-
-  if channels == 4:
-    result.a = stream.read(byte)
-  else:
-    result.a = result.b
 
 proc opRun(output: var MemStream, runs: var byte, index, lastPixel: int) =
-  ## Desc
+  ## Purpose:
+  ##    Writes a single byte representing a count of the number of times a run of the previous 
+  ##    pixel has been seen. e.g. Six green RGB pixels in a row in the datastream will be output
+  ##    one 4 byte opRGB value, followed by a 1-byte opRun byte whose value is 5. Also includes
+  ##    a 2-bit tag at the top  of the byte. 
+  ## Inputs:
+  ##    output: MemStream (variable) - a mutable Memstream object to write compressed data to
+  ##    runs: byte (variable) - a count of the number of times the previous pixel repeats itself
+  ##    index: the current pixel being read from the input stream
+  ##    lasPixel: the last pixel in the input stream, a.k.a, the end of the input stream
+  ## Side-Effects:
+  ##    writes 1 byte  to the output memory stream
+  ## Returns:
+  ##    None
 
   inc runs
   if (runs == 62) or (index == lastPixel):
@@ -107,6 +64,19 @@ proc opRun(output: var MemStream, runs: var byte, index, lastPixel: int) =
 
 
 proc opDiff(output: var MemStream, diff: Pixel, flag: var bool) =
+  ## Purpose:
+  ##    Writes either 1 byte or 2 bytes representing either the difference to the previous 
+  ##    pixel value in RGB, or the luminosity difference using two bytes. Includes a 2-bit 
+  ##    tag value at the front, upper bits.
+  ## Inputs:
+  ##    output: MemStream (variable) - a mutable Memstream object to write compressed data to
+  ##    diff: Pixel - an object containing the RBGA byte values
+  ##    flag: bool - informs the calling function if any data was written the the output memory
+  ##                 stream, otherwise the calling function will jump to the next scenario.
+  ## Side-Effects:
+  ##    writes 1 or 2 bytes to the output memory stream
+  ## Returns:
+  ##    None
   if ((int(diff.r) >= -2) and (int(diff.r) <= 1)) and
      ((int(diff.g) >= -2) and (int(diff.g) <= 1)) and
      ((int(diff.b) >= -2) and (int(diff.b) <= 1)):
@@ -135,14 +105,33 @@ proc opDiff(output: var MemStream, diff: Pixel, flag: var bool) =
 
 
 proc opRGB(output: var MemStream, pixel: Pixel) =
-  output.write(QOI_RGB_TAG_MASK)
+  ## Purpose:
+  ##    Writes 4 bytes representing an RGB image + 1 byte tag value to the output memory stream
+  ## Inputs:
+  ##    output: MemStream (variable) - a mutable Memstream object to write compressed data to
+  ##    pixel: Pixel - an object containing the RGB byte values
+  ## Side-Effects:
+  ##    writes 4 bytes to the output memory stream
+  ## Returns:
+  ##    None
+  output.write(QOI_RGB_TAG)
   output.write(pixel.r)
   output.write(pixel.g)
   output.write(pixel.b)
 
 
 proc opRGBA(output: var MemStream, pixel: Pixel) =
-  output.write(QOI_RGBA_TAG_MASK)
+  ## Purpose:
+  ##    Writes 5 bytes representing an RGBA image + 1 byte tag value to the output memory stream.
+  ##    Data is uncompressed.
+  ## Inputs:
+  ##    output: MemStream (variable) - a mutable Memstream object to write compressed data to
+  ##    pixel: Pixel - an object containing the RGBA byte values
+  ## Side-Effects:
+  ##    writes 5 bytes to the output memory stream
+  ## Returns:
+  ##    None
+  output.write(QOI_RGBA_TAG)
   output.write(pixel.r)
   output.write(pixel.g)
   output.write(pixel.b)
@@ -150,8 +139,17 @@ proc opRGBA(output: var MemStream, pixel: Pixel) =
 
 
 proc writeData(output: var MemStream, stream: MemStream, hdr: Header) =
-  ## Desc
-  ##
+  ## Purpose:
+  ##    Writes the compressed image data to the QOI image memory stream
+  ## Inputs:
+  ##    output: MemStream (variable) - a mutable Memstream object to write compressed data to
+  ##    stream: MemStream - The input data stream of raw RGB/RGBA values
+  ##    hdr: Header - The image desciption object (width, length, channels, colorspace)
+  ## Side-Effects:
+  ##    Changes the read position of the 'stream' MemStream
+  ##    writes data to the output memory stream
+  ## Returns:
+  ##    None
 
   let 
     imageSize = hdr.width.int * hdr.height.int * hdr.channels.int
@@ -159,31 +157,38 @@ proc writeData(output: var MemStream, stream: MemStream, hdr: Header) =
 
   var 
     prevPixel = Pixel(r: 0, g: 0, b: 0, a: 255)
-    runs = 0.byte # 0 .. 62, keeps track of the run-length of the repetitions of the previous pixel
-    slidingWindow: array[64, Pixel] # a.k.a. the OP_INDEX array
+    runs = 0.byte # 0 .. 61, keeps track of the run-length of the repetitions of the previous pixel
+    seenWindow: array[64, Pixel] # a.k.a. the OP_INDEX array
   
   # fill the window with empty values
-  for x in slidingWindow.mitems: x = Pixel(r: 0, g: 0, b: 0)
+  for x in seenWindow.mitems: x = Pixel(r: 0, g: 0, b: 0)
+  # add the previous pixel to seenWindow
+  
+  # do we do this?
+  #seenWindow[prevPixel.hash()] = prevPixel
   
   # read each pixel in data stream
-  for i in countup(0, lastPixel - 1, 4): # countup(start, last, increment)
+  for i in countup(0, lastPixel, 4): # countup(start, last, increment)
     # read current pixel from data stream, accounting for 3 vs 4 channels
-    let currPixel = stream.getPixel(int(hdr.channels))
+    let currPixel = stream.getPixel(hdr.channels)
     
+
     if currPixel.isEqual(prevPixel): # we have a repeat pixel (a.k.a a run)
       output.opRun(runs, i, lastPixel)
     else: # we do not have a repeat pixel
       if runs > 0: # we have been on a run that has now stopped
-        output.write(bitor(QOI_RUN_TAG_MASK, (runs - 1))) # rememeber to bias the run value
+        output.write(bitor(QOI_RUN_TAG_MASK, (runs - 1))) # remember to bias the run value
         runs = 0
       
-      # next we look for the currPixel in the slidingWindow array, at hash position
-      let hash = (currPixel.r * 3 + currPixel.g * 5 + currPixel.b * 7 + currPixel.a * 11) mod 64
-      if currPixel.isEqual(slidingWindow[hash]): # is pixel in slidingWindow?
+      # next we look for the currPixel in the seenWindow array, at hash position
+      let hash = currPixel.hash()
+      if currPixel.isEqual(seenWindow[hash]): # is pixel in seenWindow?
+        # Instead of writing an RGBA value in 4 bytes, we just store the index in to a previously 
+        # seen value in a single byte
         output.write(bitor(QOI_INDEX_TAG_MASK, hash))
       
-      else: # pixel wasn't in sliding window
-        slidingWindow[hash] = currPixel # since we have seen the pixel, we add it to the window
+      else: # pixel wasn't in seen window
+        seenWindow[hash] = currPixel # since we have seen the pixel, we add it to the window
         
         let diffPixel = getDiff(currPixel, prevPixel)
         
@@ -195,11 +200,21 @@ proc writeData(output: var MemStream, stream: MemStream, hdr: Header) =
         
         else: 
           output.opRGBA(currPixel)
-          
+
+    # don't forget this  
+    prevPixel = currPixel      
 
 proc encode*(header: Header, stream: MemStream): MemStream =
-  ## Some Description Here...
-  ##
+  ## Purpose:
+  ##    Encode raw RGB or RGBA pixels into a QOI image in memory
+  ## Inputs:
+  ##    header: Header - The image desciption object (width, length, channels, colorspace)
+  ##    stream: MemStream - The input data stream of raw RGB/RGBA values
+  ## Side-Effects:
+  ##    Changes the read position of the 'stream' MemStream
+  ## Returns:
+  ##    A MemStream object that stores the QOI image with the header data and associated
+  ##    compressed image data
 
   var output = newMemStream(bigEndian)
 

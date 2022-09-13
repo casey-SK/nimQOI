@@ -1,4 +1,4 @@
-import nimQOI/[encode]
+import nimQOI/[encode, decode, common]
 import binstreams
 
 proc writeQoiFile*(file: string, header: Header, stream: MemStream) =
@@ -11,3 +11,14 @@ proc writeQoiFile*(file: string, header: Header, stream: MemStream) =
     
   outputData.close()
   outputFile.close()
+
+
+proc readQoiFile(file: string): QoiFile =
+  ## Description
+  ##
+  
+  var stream = newFileStream(file, bigEndian, fmRead)
+  result = decode(stream)
+  stream.close()
+  
+
