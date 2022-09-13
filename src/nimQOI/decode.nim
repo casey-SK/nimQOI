@@ -1,5 +1,4 @@
 ## nimQOI - Decoding Functions
-## 
 
 import std/[bitops] # Standard Libary import
 import binstreams # Nimble Library import
@@ -13,12 +12,6 @@ proc readSignature(stream: var MemStream, idx: var int): bool =
       return false
   return true
 
-proc writePixel(output: var seq[byte]; pixel: Pixel, channel: Channels) =
-  output.add(pixel.r) 
-  output.add(pixel.g) 
-  output.add(pixel.b)
-  if channel == RGBA: 
-    output.add(pixel.a)
 
 proc readData(stream: var MemStream, hdr: Header): seq[byte] =
   ## Description
@@ -27,7 +20,6 @@ proc readData(stream: var MemStream, hdr: Header): seq[byte] =
   let
     pixelCount = hdr.width.int * hdr.height.int
     imageSize = pixelCount * hdr.channels.int
-    lastPixel = imageSize - hdr.channels.int
 
   var 
     pixel = Pixel(r: 0, g: 0, b: 0, a: 255)
@@ -79,8 +71,8 @@ proc readData(stream: var MemStream, hdr: Header): seq[byte] =
           bits2 = stream.read(byte)
 
         let
-          dr_dg = bitand(bits, QOI_LUMA_DR_DG_MASK) + 8
-          db_dg = bitand(bits, QOI_LUMA_DB_DG_MASK) + 8
+          dr_dg = bitand(bits2, QOI_LUMA_DR_DG_MASK) + 8
+          db_dg = bitand(bits2, QOI_LUMA_DB_DG_MASK) + 8
           dr = dr_dg + dg
           db = db_dg + dg
           
@@ -99,11 +91,6 @@ proc readData(stream: var MemStream, hdr: Header): seq[byte] =
 
     if hdr.channels == RGBA:
       result.add(pixel.a)
-
-
-
-    
-  
 
 
 proc decode*(stream: var MemStream): QoiFile =
@@ -126,6 +113,8 @@ proc decode*(stream: var MemStream): QoiFile =
     header = init(width, height, channels, colorspace)
 
   result.header = header
+
+  # read data information
   result.data = stream.readData(header)
 
   var endMarker: seq[byte]
@@ -134,6 +123,7 @@ proc decode*(stream: var MemStream): QoiFile =
   
   if not (endMarker == QOI_END):
     raise newException(ValueError, "did not read proper end marker!")
+
 
 proc decode*(stream: FileStream): QoiFile =
   ## Maybe I should just copy/paste the code from MemStream version?

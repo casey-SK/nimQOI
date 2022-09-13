@@ -1,15 +1,8 @@
-# This is just an example to get you started. You may wish to put all of your
-# tests into a single file, or separate them into multiple `test1`, `test2`
-# etc. files (better names are recommended, just make sure the name starts with
-# the letter 't').
-#
-# To run these tests, simply execute `nimble test`.
+# nimQOI - Tests
 
-import unittest
-
-import nimQOI
-import nimQOI/[encode, decode, common]
-import binstreams
+import std/[unittest] # Standard Libary import
+import binstreams # Nimble Library import
+import nimQOI/[encode, decode, common] # Adjacent Module import
 
 suite "nimQOI Encoder":
 

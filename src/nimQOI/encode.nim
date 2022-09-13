@@ -7,6 +7,17 @@ import common # Adjacent Module import
 
 
 func isEqual(p1, p2: Pixel): bool =
+  ## Purpose:
+  ##    Checks if each channel of two pixels are equal to each other,
+  ##    returning a true/false value
+  ## Inputs:
+  ##    p1: Pixel - An RGBA pixel
+  ##    p2: Pixel - An RGBA pixel 
+  ## Side-Effects:
+  ##   None
+  ## Returns:
+  ##    true if the pixels are the same, otherwise false
+  
   if p1.r == p2.r and
     p1.g == p2.g and
     p1.b == p2.b and
@@ -17,10 +28,43 @@ func isEqual(p1, p2: Pixel): bool =
 
 
 func getDiff(p1, p2: Pixel): Pixel =
+  ## Purpose:
+  ##    Returns a pixel which is the differnce between each channel
+  ##    of P1 and P2. Note that wrapping must occur if subtraction results
+  ##    in a negative value. This is inherit in the byte data type.
+  ## Inputs:
+  ##    p1: Pixel - An RGBA pixel
+  ##    p2: Pixel - An RGBA pixel to be subtracted from p1
+  ## Side-Effects:
+  ##   None
+  ## Returns:
+  ##    a Pixel containing the RGBA values (if RGB, A = B)
+  
   result.r = p1.r - p2.r
   result.g = p1.g - p2.g
   result.b = p1.b - p2.b
   result.a = p1.a - p2.a
+
+
+proc getPixel*(stream: MemStream, channels: Channels): Pixel =
+  ## Purpose:
+  ##    Reads either 3 or 4 bytes from the raw RGB or RGBA input memory stream
+  ## Inputs:
+  ##    stream: MemStream - a Memstream object to read data from
+  ##    channels: Channels - RGB (3) or RGBA (4)
+  ## Side-Effects:
+  ##   Changes the read position of the 'stream' MemStream
+  ## Returns:
+  ##    a Pixel containing the RGBA values (if RGB, A = B)
+  
+  result.r = stream.read(byte)
+  result.g = stream.read(byte)
+  result.b = stream.read(byte)
+
+  if channels == RGBA:
+    result.a = stream.read(byte)
+  else:
+    result.a = result.b
 
 
 func writeHeader(output: var Memstream; header: Header) =
@@ -33,6 +77,7 @@ func writeHeader(output: var Memstream; header: Header) =
   ##    writes 14 bytes  to the output memory stream
   ## Returns:
   ##    None
+  
   for i in QOI_MAGIC:
        output.write(i)
   output.write(uint32(header.width))
@@ -77,6 +122,7 @@ proc opDiff(output: var MemStream, diff: Pixel, flag: var bool) =
   ##    writes 1 or 2 bytes to the output memory stream
   ## Returns:
   ##    None
+  
   if ((int(diff.r) >= -2) and (int(diff.r) <= 1)) and
      ((int(diff.g) >= -2) and (int(diff.g) <= 1)) and
      ((int(diff.b) >= -2) and (int(diff.b) <= 1)):
@@ -114,6 +160,7 @@ proc opRGB(output: var MemStream, pixel: Pixel) =
   ##    writes 4 bytes to the output memory stream
   ## Returns:
   ##    None
+  
   output.write(QOI_RGB_TAG)
   output.write(pixel.r)
   output.write(pixel.g)
@@ -131,6 +178,7 @@ proc opRGBA(output: var MemStream, pixel: Pixel) =
   ##    writes 5 bytes to the output memory stream
   ## Returns:
   ##    None
+  
   output.write(QOI_RGBA_TAG)
   output.write(pixel.r)
   output.write(pixel.g)

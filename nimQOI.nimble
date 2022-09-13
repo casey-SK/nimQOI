@@ -1,6 +1,6 @@
 # Package
 
-version       = "0.1.2"
+version       = "0.1.3"
 author        = "Casey"
 description   = "QOI - The Quite OK Image Format for Fast, Lossless Compression"
 license       = "MIT"

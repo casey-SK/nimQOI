@@ -1,7 +1,4 @@
 ## nimQOI - common QOI types, constants, and functions for encoding/decoding
-## 
-
-import binstreams
 
 type
   Channels* = enum
@@ -69,17 +66,6 @@ func set*(r, g, b, a: byte): Pixel =
 func init*(header: Header, data: seq[byte]): QoiFile =
   result.header = header
   result.data = data
-
-
-proc getPixel*(stream: MemStream, channels: Channels): Pixel =
-  result.r = stream.read(byte)
-  result.g = stream.read(byte)
-  result.b = stream.read(byte)
-
-  if channels == RGBA:
-    result.a = stream.read(byte)
-  else:
-    result.a = result.b
 
 func hash*(pixel: Pixel): byte =
   return (pixel.r * 3 + pixel.g * 5 + pixel.b * 7 + pixel.a * 11) mod 64
