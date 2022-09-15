@@ -11,3 +11,4 @@ srcDir        = "src"
 
 requires "nim >= 1.6.6"
 requires "https://github.com/johnnovak/nim-binstreams"
+requires "https://github.com/arnetheduck/nim-result" 

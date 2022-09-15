@@ -1,56 +1,138 @@
 # nimQOI - Tests
 
 import std/[unittest] # Standard Libary import
-import binstreams # Nimble Library import
-import nimQOI/[encode, decode, common] # Adjacent Module import
+import ../nimQOI # Adjacent Module import
 
-suite "nimQOI Encoder":
 
-  test "Test 1: uniform green square (100px, 100px)":
-    func fillTestArray(x:int): seq[byte] =
-      for i in countup(1, (x * x)):
-        result.add(0.byte)
-        result.add(190.byte)
-        result.add(0.byte)
-        result.add(255.byte)
-    
+
+func fillRGBArray(x:int): seq[byte] =
+  ## fill an array with unique RGBA values that will not encounter opDIFF or opLUMA
+  if x > 5:
+    raise newException(ValueError, "Test Dimensions encounter a one byte limit")
+  
+  let baseVal = 0
+  for i in countup(1, (x * x)):
+    # why the limit is 5 because max(i) = x * x, which must be < (255 / 8)
+    result.add(0)                         # R
+    result.add(0.byte)                    # G
+    result.add((baseVal + (i * 8)).byte)  # B 
+    result.add(255.byte)                  # A
+
+
+
+func fillRunArray(x:int): seq[byte] =
+  ## fill an array of identical values
+  for i in countup(1, (x * x)):
+        result.add(220.byte)    # R
+        result.add(0.byte)  # G
+        result.add(0.byte)    # B
+        result.add(255.byte)  # A
+  
+
+func fillIndexArray(x:int): seq[byte] =
+  ## Half the values will be unique RGBA values, the other half will be duplicates 
+  ## hopefully stored in the index array
+  
+  if x > 6:
+    raise newException(ValueError, "Test Dimensions encounter a one byte limit")
+  
+  let half = x div 2
+  let baseVal = 0
+  for i in countup(1, (x * half)):
+    # why the limit is 5 because max(i) = x * x, which must be < (255 / 8)
+    result.add((baseVal + (i * 8)).byte)  # R
+    result.add(0.byte)                    # G
+    result.add((baseVal - (i * 3)).byte)                   # B 
+    result.add(255.byte)                  # A
+
+  # Add the same values twice
+  for i in countup(1, (x * half)):
+    result.add((baseVal + (i * 8)).byte)  # R
+    result.add(0.byte)                    # G
+    result.add((baseVal - (i * 3)).byte)                    # B 
+    result.add(255.byte)                  # A
+
+
+func fillDiffArray(x:int): seq[byte] =
+  ## For each pixel, ensure that it is only slightly different than the previous pixel
+  
+  if x > 11:
+    raise newException(ValueError, "Test Dimensions encounter a one byte limit")
+
+  let baseVal = 255
+  for i in countup(1, (x * x)):
+    #  why the limit is 11 because max(i) = x * x, which must be < (255 / 2)
+    result.add(0.byte)              # R
+    result.add((baseVal - (i * 2)).byte)  # G (increment i by two)
+    result.add(0.byte)              # B
+    result.add(255.byte)            # A
+
+
+func fillLumaArray(x:int): seq[byte] =
+  ## For each pixel, ensure it is slightly more different than the previous pixel
+  
+  if x > 7:
+    raise newException(ValueError, "Test Dimensions encounter a one byte limit")
+
+  let baseVal = 255
+  for i in countup(1, (x * x)):
+    #  why the limit is 11 because max(i) = x * x, which must be < (255 / 2)
+    result.add(0.byte)                      # R
+    result.add(0.byte)                      # G
+    result.add(((baseVal - (i * 3)).byte))  # B
+    result.add(255.byte)                    # A
+
+
+
+suite "Black Box Basic Tests":
+
+  test "Encoder, opRGB chunk":
     let 
-      inputHeader = Header(width: 10, height: 10, channels: RGBA, colorspace: sRGB)
-      inputData = newMemStream(fillTestArray(10), bigEndian)
-    
-    let outputData = encode(inputHeader, inputData)
-    var 
-      rawRGB = newFileStream("raw.bin", bigEndian, fmWrite)
-      outputFile = newFileStream("out.qoi", bigEndian, fmWrite)
-      decoded = newFileStream("decoded.bin", littleEndian, fmWrite)
-    
-    for i in fillTestArray(10):
-      rawRGB.write(i)
+      t1c1_input_header = Header(width: 5, height: 5, channels: RGBA, colorspace: sRGB)
+      t1c1_input_data = newMemStream(fillRGBArray(5), bigEndian)
+      t1c1_output_qoi = encodeQOI(t1c1_input_header, t1c1_input_data)
+      t1c1_refernce_qoi = newFileStream("tests/images/t1c1_ref.qoi", bigEndian, fmRead)
 
-    for i in outputData.data:
-      outputFile.write(i)
+    for i in t1c1_output_qoi.data:
+      require i == t1c1_refernce_qoi.read(byte)
+  
+  test "Encoder, opRUN chunk":
+    let 
+      t1c2_input_header = Header(width: 5, height: 5, channels: RGBA, colorspace: sRGB)
+      t1c2_input_data = newMemStream(fillRunArray(5), bigEndian)
+      t1c2_output_qoi = encodeQOI(t1c2_input_header, t1c2_input_data)
+      t1c2_refernce_qoi = newFileStream("tests/images/t1c2_ref.qoi", bigEndian, fmRead)
 
-    outputData.close()
-    outputFile.close()
+    for i in t1c2_output_qoi.data:
+      check i == t1c2_refernce_qoi.read(byte)
+  
+  test "Encoder, opINDEX chunk":
+    let 
+      t1c3_input_header = Header(width: 6, height: 6, channels: RGBA, colorspace: sRGB)
+      t1c3_input_data = newMemStream(fillIndexArray(6), bigEndian)
+      t1c3_output_qoi = encodeQOI(t1c3_input_header, t1c3_input_data)
+      t1c3_refernce_qoi = newFileStream("tests/images/t1c3_ref.qoi", bigEndian, fmRead)
 
-    var inputFile = newFileStream("out.qoi", bigEndian, fmRead)
-    let decodedQoi = decode(inputFile)
+    for i in t1c3_output_qoi.data:
+      check i == t1c3_refernce_qoi.read(byte)  
+  
+  test "Encoder, opDIFF chunk":
+    let 
+      t1c4_input_header = Header(width: 6, height: 6, channels: RGBA, colorspace: sRGB)
+      t1c4_input_data = newMemStream(fillDiffArray(6), bigEndian)
+      t1c4_output_qoi = encodeQOI(t1c4_input_header, t1c4_input_data)
+      t1c4_refernce_qoi = newFileStream("tests/images/t1c4_ref.qoi", bigEndian, fmRead)
 
-    #echo decodedQoi.header.width
-    #echo decodedQoi.header.height
-    #echo decodedQoi.header.colorspace
-    #echo decodedQoi.header.channels
-    for i in decodedQoi.data:
-      decoded.write(i)
-    
-    
-    decoded.close()
-    inputFile.close()
+    for i in t1c4_output_qoi.data:
+      check i == t1c4_refernce_qoi.read(byte)
+  
+  test "Encoder, opLUMA chunk":
+    let 
+      t1c5_input_header = Header(width: 6, height: 6, channels: RGBA, colorspace: sRGB)
+      t1c5_input_data = newMemStream(fillLumaArray(6), bigEndian)
+      t1c5_output_qoi = encodeQOI(t1c5_input_header, t1c5_input_data)
+      t1c5_refernce_qoi = newFileStream("tests/images/t1c5_ref.qoi", bigEndian, fmRead)
 
-    #var 
-    #  check1 = newFileStream("raw.bin", bigEndian, fmRead)
-    #  check2 = newFileStream("decoded.bin", bigEndian, fmRead)
-    #
-    #while not check1.atEnd():
-    #  check check1.read(byte) == check2.read(byte)
+    for i in t1c5_output_qoi.data:
+      check i == t1c5_refernce_qoi.read(byte) 
 
