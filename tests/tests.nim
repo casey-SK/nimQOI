@@ -1,7 +1,7 @@
 # nimQOI - Tests
 
 import std/[unittest] # Standard Libary import
-import ../nimQOI # Adjacent Module import
+import ../qoi # Adjacent Module import
 
 
 func fillRGBArray(x:int): seq[byte] =
