@@ -4,7 +4,6 @@ import std/[unittest] # Standard Libary import
 import ../nimQOI # Adjacent Module import
 
 
-
 func fillRGBArray(x:int): seq[byte] =
   ## fill an array with unique RGBA values that will not encounter opDIFF or opLUMA
   if x > 5:
@@ -86,6 +85,41 @@ func fillLumaArray(x:int): seq[byte] =
 
 suite "Black Box Basic Tests":
 
+  test "Encoder, header":
+    # read the first 14 bytes and the last 8 bytes of the file 
+    let 
+      t1c0_input_header = Header(width: 5, height: 5, channels: RGBA, colorspace: sRGB)
+      t1c0_input_data = newMemStream(fillRGBArray(5), bigEndian)
+      t1c0_output_qoi = encodeQOI(t1c0_input_header, t1c0_input_data)
+
+    # check the magic bytes
+    const QOI_MAGIC = ['q', 'o', 'i', 'f']
+    check cast[seq[char]](t1c0_output_qoi.data[0..3]) == QOI_MAGIC
+
+    # check the width, note that all this work is to swap the endianness of the uint32 data
+    var 
+      rev_width: seq[byte]
+      p: int
+
+    for i in countdown(7, 4):
+      rev_width.add(t1c0_output_qoi.data[i])
+
+    check int((cast[ptr uint32](addr rev_width[p]))[]) == 5
+    
+    # check the height, note that all this work is to swap the endianness of the uint32 data
+    var 
+      rev_height: seq[byte]
+      q: int
+
+    for i in countdown(11, 8):
+      rev_height.add(t1c0_output_qoi.data[i])
+    check int((cast[ptr uint32](addr rev_height[q]))[]) == 5
+
+    # check the colour channel
+    check cast[Channels](t1c0_output_qoi.data[12]) == RGBA
+
+    check cast[Colorspace](t1c0_output_qoi.data[13]) == sRGB
+
   test "Encoder, opRGB chunk":
     let 
       t1c1_input_header = Header(width: 5, height: 5, channels: RGBA, colorspace: sRGB)
@@ -135,4 +169,33 @@ suite "Black Box Basic Tests":
 
     for i in t1c5_output_qoi.data:
       check i == t1c5_refernce_qoi.read(byte) 
+  
+  test "Decoder, header":
+    let t1c6_decoded = readQOI("tests/images/t1c1_ref.qoi")
+
+    check t1c6_decoded.header.width == 5
+    check t1c6_decoded.header.height == 5
+    check t1c6_decoded.header.channels == RGBA
+    check t1c6_decoded.header.colorspace == sRGB
+  
+  test "Decoder, opRGB chunk":
+    let t1c7_decoded = readQOI("tests/images/t1c1_ref.qoi")
+    check t1c7_decoded.data == fillRGBArray(5) 
+  
+  test "Decoder, opRUN chunk":
+    let t1c8_decoded = readQOI("tests/images/t1c2_ref.qoi")
+    check t1c8_decoded.data == fillRunArray(5)
+  
+  test "Decoder, opINDEX chunk":
+    let t1c9_decoded = readQOI("tests/images/t1c3_ref.qoi")
+    check t1c9_decoded.data == fillIndexArray(6)
+  
+  test "Decoder, opDIFF chunk":
+    let t1c10_decoded = readQOI("tests/images/t1c4_ref.qoi")
+    check t1c10_decoded.data == fillDiffArray(6)
+  
+  test "Decoder, opLUIMA chunk":
+    let t1c11_decoded = readQOI("tests/images/t1c5_ref.qoi")
+    check t1c11_decoded.data == fillLumaArray(6)
+
 

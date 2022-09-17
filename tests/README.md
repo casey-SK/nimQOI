@@ -30,17 +30,17 @@ To try all possible permutations of chunk types, it might be helpful to look at 
 
 | `QOI HEADER` | `opRGBA` | `opRUN` | `opRGBA` | `opINDEX` | `opRGBA` | `opDIFF` | `opRGBA` | `opLUMA` |
 
-Note that a file must always start with a QOI HEADER and `opRGB`/`opRGBA` chunk. So if we consider `opRGB`/`opRGBA`
+Note that a file must always start with a QOI HEADER and an `opRGB`/`opRGBA` chunk. So if we consider `opRGB`/`opRGBA`
 to be the same, and ignore them for determining possible permutations, we have 4 chunk types that we do not wish
 to repeat, so we have 4! (factorial) cases to cover, which is 24. But perhaps we want to cover all 24 cases for both
-RGB and RGBA inputs, making 48 test cases. As well, our tests to cover the cases where perhaps an `opRGB`/`opRGBA`
-is the last chunk type in the file. So we will add (2 * 4) more test cases manually to cover that as well. Bringing
+RGB and RGBA inputs, making 48 test cases. As well, our tests need to cover the cases where perhaps an `opRGB`/`opRGBA`
+is the last chunk type in the file. So we will add (2 * 4) test cases manually to cover that as well. Bringing
 the total number of Grey Box checks to 56. This is done for both encoding and decoding.
 
 
 ## Edge Case Testing
 
-There are subtleties in the QOI specification the needs to be addressed on a case-by-case basis. These tests
+There are subtleties in the QOI specification that needs to be addressed on a case-by-case basis. These tests
 belong in this test suite. Some of the immediate checks include:
   - A blank image where each pixel is as follows: `{r: 0, g: 0, b: 0, a: 255}`
   - An image where at least the first 64 pixels are blank, and then at some point a single pixel is different,

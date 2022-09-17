@@ -13,10 +13,10 @@
 ## outlines the data format.
 ## 
 ## **Available Functions**
-##  * qoi_read    -- read and decode a QOI file
-##  * qoi_decode  -- decode the raw bytes of a QOI image from memory
-##  * qoi_write   -- encode and write a QOI file
-##  * qoi_encode  -- encode an rgba buffer into a QOI image in memory
+##  * readQOI    -- read and decode a QOI file
+##  * decodeQOI  -- decode the raw bytes of a QOI image from memory
+##  * writeQOI   -- encode and write a QOI file
+##  * encodeQOI  -- encode an rgba buffer into a QOI image in memory
 ## 
 ## **QOI Format Specification**
 ## 
@@ -44,7 +44,7 @@
 ## .. code-block::
 ## 	 index_position = (r * 3 + g * 5 + b * 7 + a * 11) % 64
 ## 
-## Each chunk starts with a 2- or 8-bit tag, followed by a number of data bits. The
+## Each chunk starts with a 2-bit or 8-bit tag, followed by a number of data bits. The
 ## bit length of chunks is divisible by 8 - i.e. all chunks are byte aligned. All
 ## values encoded in these data bits have the most significant bit on the left.
 ## 
@@ -172,7 +172,7 @@ type
     ##	* 1 = all channels are linear
     ## The colorspace is purely
     ## informative. It will be saved to the file header, but does not affect
-    ## how chunks are en-/decoded.
+    ## how chunks are encoded/decoded.
     sRGB = 0, linear = 1
 
   Header* = object
@@ -203,7 +203,6 @@ type
 
 const
   QOI_MAGIC = ['q', 'o', 'i', 'f']
-  QOI_HEADER_SIZE = 14
 
   QOI_2BIT_MASK       = 0b11000000.byte
   QOI_RUN_TAG_MASK    = 0b11000000.byte
@@ -217,13 +216,12 @@ const
   QOI_RUN_VAL_MASK    = 0b00111111.byte
   QOI_INDEX_VAL_MASK  = 0b00111111.byte
   
+  QOI_2BIT_LOWER_MASK = 0b00000011.byte
   QOI_LUMA_DG_MASK    = 0b00111111.byte
-  QOI_LUMA_DR_DG_MASK = 0b11110000.byte
-  QOI_LUMA_DB_DG_MASK = 0b00001111.byte
+  QOI_4BIT_LOWER_MASK = 0b00001111.byte
 
 
   QOI_END = [0.byte, 0.byte, 0.byte, 0.byte, 0.byte, 0.byte, 0.byte, 1.byte]
-  QOI_END_SIZE = 8
 
 
 func init(w, h: uint32; channels: Channels, colorspace: Colorspace): Header =
@@ -312,25 +310,6 @@ func getPixel(stream: MemStream, channels: Channels): Pixel =
     result.a = result.b
 
 
-func writeHeader(output: Memstream; header: Header) =
-  ## Purpose:
-  ##    Writes the standardized QOI file header information to the output memory stream
-  ## Inputs:
-  ##    output: MemStream - a mutable Memstream object to write header data to
-  ##    header: Header - The image desciption object (width, length, channels, colorspace)
-  ## Side-Effects:
-  ##    writes 14 bytes  to the output memory stream
-  ## Returns:
-  ##    None
-  
-  for i in QOI_MAGIC:
-       output.write(i)
-  output.write(uint32(header.width))
-  output.write(uint32(header.height))
-  output.write(uint8(header.channels))
-  output.write(uint8(header.colorspace))
-
-
 proc opRun(output: MemStream, runs: var byte, index, lastPixel: int) =
   ## Purpose:
   ##    Writes a single byte representing a count of the number of times a run of the previous 
@@ -355,8 +334,8 @@ proc opRun(output: MemStream, runs: var byte, index, lastPixel: int) =
 
 proc opDiff(output: MemStream, diff: Pixel, flag: var bool) =
   ## Purpose:
-  ##    Writes either 1 byte or 2 bytes representing either the difference to the previous 
-  ##    pixel value in RGB, or the luminosity difference using two bytes. Includes a 2-bit 
+  ##    Writes either 1 byte representing either the difference to the previous pixel 
+  ##    value in RGB, or the luminosity difference using two bytes. Includes a 2-bit 
   ##    tag value at the front, upper bits.
   ## Inputs:
   ##    output: MemStream - a Memstream object to write compressed data to
@@ -368,24 +347,29 @@ proc opDiff(output: MemStream, diff: Pixel, flag: var bool) =
   ## Returns:
   ##    None
 
-  if ((diff.r >= 254) or (diff.r <= 1)) and
-     ((diff.g >= 254) or (diff.g <= 1)) and
-     ((diff.b >= 254) or (diff.b <= 1)):
+  # try opDIFF
+  # note that since we are using the `byte` data type to represent each Pixel value,
+  # the diff value gets wrapped. So 254..1 == -2..1
+  if ((diff.r >= 254) or (diff.r <= 1)) and   # -2 <= diff.r <= 1
+     ((diff.g >= 254) or (diff.g <= 1)) and   # -2 <= diff.g <= 1
+     ((diff.b >= 254) or (diff.b <= 1)):      # -2 <= diff.b <= 1
+
     # create the OP_DIFF byte, remembering to shift the channels and bias the signed integers
     output.write(bitor(QOI_DIFF_TAG_MASK, (diff.r + 2) shl 4, (diff.g + 2) shl 2, (diff.b + 2)))
     
     flag = true
   
-  # try luma
-  elif (((int(diff.g) >= 224) or (int(diff.g) <= 31))) and 
-        (((int(diff.r) >= 248) or (int(diff.r) <= 7))) and
-        (((int(diff.b) >= 248) or (int(diff.b) <= 7))):
+  # try opLUMA
+  # once again we are dealing with wrapping on negative values
+  elif (((diff.g >= 224) or (diff.g <= 31))) and  # -32 <= diff.g <= 31
+        (((diff.r >= 248) or (diff.r <= 7))) and  # -8  <= diff.r <= 7
+        (((diff.b >= 248) or (diff.b <= 7))):     # -8  <= diff.b <= 7
       
     let
       dr_dg = diff.r - diff.g
       db_dg = diff.b - diff.g
 
-    output.write(bitor(QOI_LUMA_TAG_MASK, (diff.g + 32))) # OP_DIFF is 2 bytes, so we write two bytes
+    output.write(bitor(QOI_LUMA_TAG_MASK, (diff.g + 32))) # OP_LUMA is 2 bytes, so we write two bytes
     output.write(bitor((dr_dg + 8) shl 4, (db_dg + 8)))
 
     flag = true
@@ -430,12 +414,32 @@ proc opRGBA(output: MemStream, pixel: Pixel) =
   output.write(pixel.a)
 
 
-proc writeData(output: MemStream, stream: MemStream, hdr: Header) =
+func writeHeader(output: Memstream; header: Header) =
+  ## Purpose:
+  ##    Writes the standardized QOI file header information to the output memory stream
+  ## Inputs:
+  ##    output: MemStream - a mutable Memstream object to write header data to
+  ##    header: Header - The image desciption object (width, length, channels, colorspace)
+  ## Side-Effects:
+  ##    writes 14 bytes  to the output memory stream
+  ## Returns:
+  ##    None
+  
+  for i in QOI_MAGIC:
+       output.write(i)
+
+  output.write(uint32(header.width))
+  output.write(uint32(header.height))
+  output.write(uint8(header.channels))
+  output.write(uint8(header.colorspace))
+
+
+proc writeData(output: MemStream, input: MemStream, hdr: Header) =
   ## Purpose:
   ##    Writes the compressed image data to the QOI image memory stream
   ## Inputs:
   ##    output: MemStream - a Memstream object to write compressed data to
-  ##    stream: MemStream - The input data stream of raw RGB/RGBA values
+  ##    input: MemStream - The input data stream of raw RGB/RGBA values
   ##    hdr: Header - The image desciption object (width, length, channels, colorspace)
   ## Side-Effects:
   ##    Changes the read position of the 'stream' MemStream
@@ -454,18 +458,15 @@ proc writeData(output: MemStream, stream: MemStream, hdr: Header) =
   
   # fill the window with empty values
   for x in seenWindow.mitems: x = Pixel(r: 0, g: 0, b: 0)
-  # add the previous pixel to seenWindow
+  # add the initial previous pixel to seenWindow
+  seenWindow[prevPixel.hash()] = prevPixel
   
-  # do we do this?
-  #seenWindow[prevPixel.hash()] = prevPixel
-  
-  # read each pixel in data stream
+  # read each pixel in input data stream
   for i in countup(0, lastPixel, 4): # countup(start, last, increment)
     # read current pixel from data stream, accounting for 3 vs 4 channels
-    let currPixel = stream.getPixel(hdr.channels)
+    let currPixel = input.getPixel(hdr.channels)
     
-
-    if currPixel.isEqual(prevPixel): # we have a repeat pixel (a.k.a a run)
+    if currPixel.isEqual(prevPixel): # we have a repeat pixel (a.k.a. a run)
       output.opRun(runs, i, lastPixel)
     else: # we do not have a repeat pixel
       if runs > 0: # we have been on a run that has now stopped
@@ -474,25 +475,28 @@ proc writeData(output: MemStream, stream: MemStream, hdr: Header) =
       
       # next we look for the currPixel in the seenWindow array, at hash position
       let hash = currPixel.hash()
-      
-      if currPixel.isEqual(seenWindow[hash]): # is pixel in seenWindow?
+      if currPixel.isEqual(seenWindow[hash]): # is current pixel in seenWindow?
         # Instead of writing an RGBA value in 4 bytes, we just store the index in to a previously 
         # seen value in a single byte
         output.write(bitor(QOI_INDEX_TAG_MASK, hash))
       
-      else: # pixel wasn't in seen window
-        seenWindow[hash] = currPixel # since we have seen the pixel, we add it to the window
+      else: # pixel wasn't in seenWindow
+        seenWindow[hash] = currPixel # since we have seen the pixel, we now add it to the window
         
+        # for each channel, get the difference (currPixel - prevPixel)
         let diffPixel = getDiff(currPixel, prevPixel)
 
+        # We can only use opDIFF and opLUMA on a 3 channel image (or an image the is functionally 3 channels)
         if diffPixel.a == 0:
+          # We use a flag value to determine if the opDiff() function has written to the output stream,
+          # otherwise the RGB pixel is represented using the opRGB tag
           var diffFlag: bool
           output.opDiff(diffPixel, diffFlag)
           if not diffFlag:
-            output.opRGB(currPixel)
+            output.opRGB(currPixel) # write an opRGB chunk to output stream
         
         else: 
-          output.opRGBA(currPixel)
+          output.opRGBA(currPixel) # write an opRGBA chunk to output stream
 
     # don't forget this  
     prevPixel = currPixel      
@@ -530,7 +534,6 @@ proc readData(stream: MemStream, hdr: Header): seq[byte] =
 
   var bits: byte
   for i in 0 ..< pixelCount:
-
     if run > 0:
       dec run
     
@@ -551,30 +554,19 @@ proc readData(stream: MemStream, hdr: Header): seq[byte] =
         let index = bitand(bits, QOI_INDEX_VAL_MASK)
         pixel = seenWindow[index]
       
-      elif bitand(bits, QOI_2BIT_MASK) == QOI_DIFF_TAG_MASK:
-        let
-          dr = bitand(bits, 0x30) + 2.byte
-          dg = bitand(bits, 0x0c) + 2.byte
-          db = bitand(bits, 0x03) + 2.byte
-          
-        pixel.r = (pixel.r + dr) mod 64
-        pixel.g = (pixel.g + dg) mod 64
-        pixel.b = (pixel.b + db) mod 64
+      elif bitand(bits, QOI_2BIT_MASK) == QOI_DIFF_TAG_MASK:  
+        pixel.r += bitand((bits shr 4), QOI_2BIT_LOWER_MASK) - 2
+        pixel.g += bitand((bits shr 2), QOI_2BIT_LOWER_MASK) - 2
+        pixel.b += bitand((bits), QOI_2BIT_LOWER_MASK) - 2
       
       elif bitand(bits, QOI_2BIT_MASK) == QOI_LUMA_TAG_MASK:
         let 
-          dg = bitand(bits, QOI_LUMA_DG_MASK) + 32
+          dg = bitand(bits, QOI_LUMA_DG_MASK) - 32
           bits2 = stream.read(byte)
-
-        let
-          dr_dg = bitand(bits2, QOI_LUMA_DR_DG_MASK) + 8
-          db_dg = bitand(bits2, QOI_LUMA_DB_DG_MASK) + 8
-          dr = dr_dg + dg
-          db = db_dg + dg
           
-        pixel.r = (pixel.r + dr) mod 64
-        pixel.g = (pixel.g + dg) mod 64
-        pixel.b = (pixel.b + db) mod 64
+        pixel.r += dg - 8 + bitand((bits2 shr 4), QOI_4BIT_LOWER_MASK)
+        pixel.g += dg
+        pixel.b += dg - 8 + bitand(bits2, QOI_4BIT_LOWER_MASK)
 
       elif bitand(bits, QOI_2BIT_MASK) == QOI_RUN_TAG_MASK:
         run = bitand(bits, QOI_RUN_VAL_MASK) + 1 # Remember to unbias the run value!
@@ -589,9 +581,12 @@ proc readData(stream: MemStream, hdr: Header): seq[byte] =
       result.add(pixel.a)
 
 
+#
 # -----------------------------------------------------------------
 #                   MAIN FUNCTIONS
 # -----------------------------------------------------------------
+#
+
 
 proc decodeQOI*(stream: MemStream): QOIF =
   ## Decode the raw bytes of a QOI image from memory
@@ -632,7 +627,7 @@ proc encodeQOI*(header: Header, stream: MemStream): MemStream =
   ## Purpose:
   ##    Encode raw RGB or RGBA pixels into a QOI image in memory
   ## Inputs:
-  ##    header: Header - The image desciption object (width, length, channels, colorspace)
+  ##    header: Header - The image description object (width, length, channels, colorspace)
   ##    stream: MemStream - The input data stream of raw RGB/RGBA values
   ## Side-Effects:
   ##    Changes the read position of the 'stream' MemStream
@@ -649,7 +644,9 @@ proc encodeQOI*(header: Header, stream: MemStream): MemStream =
   for i in QOI_END:
     output.write(i)
   
+  # reset the cursor position
   output.setPosition(0)
+
   return output
 
 
